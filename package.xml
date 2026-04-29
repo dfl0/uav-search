@@ -5,6 +5,8 @@
     <description>ROS package for multi-UAV search and rescue simulation using AirSim</description>
 
     <maintainer email="dflocos@gmail.com">Dorin Flocos</maintainer>
+    <maintainer email="salajurijal@gmail.com">Salaj Rijal</maintainer>
+    <maintainer email="acass2@binghamton.com">Alex Cass</maintainer>
     <license>MIT</license>
 
     <buildtool_depend>catkin</buildtool_depend>

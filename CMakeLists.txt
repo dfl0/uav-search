@@ -17,8 +17,20 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-add_executable(airsim_bridge_node src/airsim_bridge_node.cpp)
+# add all launch files to share directory
+install(DIRECTORY launch/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
+)
 
+## EXECUTABLES
+# airsim bridge to connect twist_teleop_keyboard
+add_executable(airsim_bridge_node src/airsim_bridge_node.cpp)
 target_link_libraries(airsim_bridge_node
+  ${catkin_LIBRARIES}
+)
+
+# custom drone teleop
+add_executable(teleop src/teleop.cpp)
+target_link_libraries(teleop
   ${catkin_LIBRARIES}
 )

@@ -1,0 +1,9 @@
+<launch>
+    <arg name="host" default="$(optenv HOST localhost)"/>
+
+    <include file="$(find airsim_ros_pkgs)/launch/airsim_node.launch">
+        <arg name="host" value="$(arg host)"/>
+        <arg name="output" value="screen"/>
+        <arg name="publish_clock" value="true"/>
+    </include>
+</launch>
