@@ -17,13 +17,6 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-# add python scripts
-catkin_install_python(PROGRAMS
-  scripts/yolo_node.py
-  scripts/static_image_publisher.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
 # add all launch files to share directory
 install(DIRECTORY launch/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
