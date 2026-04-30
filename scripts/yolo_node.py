@@ -21,7 +21,7 @@ class YoloDetector:
         self.output_topic = rospy.get_param("~output_topic", "/yolo/image_annotated")
         self.detection_topic = rospy.get_param("~detection_topic", "/yolo/detections")
         self.model_path = rospy.get_param("~model_path", "yolo26n.pt")
-        self.conf_threshold = rospy.get_param("~conf_threshold", 0.5)
+        self.conf_threshold = rospy.get_param("~conf_threshold", 0.65)
         self.cooldown = rospy.get_param("~cooldown", 2.0)
 
         # Load YOLOv26 model
@@ -94,9 +94,16 @@ class YoloDetector:
 
         # Cooldown-based announcement
         now = time.time()
+
+        # Print whatever YOLO sees to terminal
+        if (now - self.last_announcement > self.cooldown):
+            print("YOLO Detected: " + label)
+            self.last_announcement = now
+            
+        # Publish when a person is detected
         if person_detected and (now - self.last_announcement > self.cooldown):
             rospy.loginfo("PERSON DETECTED")
-            self.detection_pub.publish("Person detected with >50% confidence")
+            self.detection_pub.publish("PERSON DETECTED")
             self.last_announcement = now
 
         # Publish annotated image
