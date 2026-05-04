@@ -1,4 +1,5 @@
 #include <ros/ros.h>
+#include <geometry_msgs/Twist.h>
 #include <airsim_ros_pkgs/VelCmd.h>
 
 class AirSimBridge {
@@ -21,7 +22,6 @@ public:
         airsim_ros_pkgs::VelCmd vel_cmd;
         vel_cmd.twist = *msg;  // types match exactly
         pub_.publish(vel_cmd);
-        pub_.publish(*msg);
     }
 
 private:
