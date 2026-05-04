@@ -1,0 +1,22 @@
+<launch>
+    <arg name="output" default="log"/>
+    <arg name="host" default="localhost"/>
+
+    <include file="$(find airsim_ros_pkgs)/launch/airsim_node.launch">
+        <arg name="host" value="$(arg host)"/>
+        <arg name="output" value="$(arg output)"/>
+    </include>
+
+    <node pkg="tf" type="static_transform_publisher" name="map_to_world_ned"
+          args="0 0 0 1.57079632 0 3.14159265 map world_ned 100"/>
+
+    <include file="$(find uav_search)/launch/octomap_server.launch"/>
+
+    <include file="$(find uav_search)/launch/depth_to_pointcloud.launch">
+        <arg name="drone_name" value="drone_1"/>
+    </include>
+
+    <include file="$(find uav_search)/launch/depth_to_pointcloud.launch">
+        <arg name="drone_name" value="drone_2"/>
+    </include>
+</launch>

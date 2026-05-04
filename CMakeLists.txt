@@ -2,19 +2,26 @@ cmake_minimum_required(VERSION 3.0.2)
 project(uav_search)
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  geometry_msgs
+  roscpp tf geometry_msgs
+  depth_image_proc
   airsim_ros_pkgs
 )
 
+find_package(octomap REQUIRED)
+
 catkin_package(CATKIN_DEPENDS
     roscpp
+    tf
     geometry_msgs
+    depth_image_proc
     airsim_ros_pkgs
+
+    DEPENDS octomap
 )
 
 include_directories(
   ${catkin_INCLUDE_DIRS}
+  ${OCTOMAP_INCLUDE_DIRS}
 )
 
 # add python scripts

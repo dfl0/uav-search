@@ -1,0 +1,25 @@
+<launch>
+
+    <arg name="drone_name" default="drone_1"/>
+
+    <node pkg="topic_tools" type="relay" name="$(arg drone_name)_camera_info_relay"
+          args="/airsim_node/$(arg drone_name)/depth_camera/DepthPlanar/camera_info
+                /airsim_node/$(arg drone_name)/depth_camera/camera_info"/>
+
+    <node pkg="topic_tools" type="relay" name="$(arg drone_name)_image_rect_relay"
+          args="/airsim_node/$(arg drone_name)/depth_camera/DepthPlanar
+                /airsim_node/$(arg drone_name)/depth_camera/image_rect"/>
+
+    <node pkg="nodelet" type="nodelet" name="$(arg drone_name)_nodelet_manager" args="manager" />
+
+    <node pkg="nodelet" type="nodelet" name="$(arg drone_name)_point_cloud_xyz"
+          args="load depth_image_proc/point_cloud_xyz $(arg drone_name)_nodelet_manager">
+
+        <remap from="camera_info" to="/airsim_node/$(arg drone_name)/depth_camera/camera_info"/>
+        <remap from="image_rect" to="/airsim_node/$(arg drone_name)/depth_camera/image_rect"/>
+        <remap from="points" to="/points"/>
+
+        <param name="queue_size" value="10"/>
+    </node>
+
+</launch>
