@@ -1,8 +1,0 @@
-<launch>
-    <node pkg="uav_search" type="yolo_node.py" name="yolo_node">
-        <remap from="/camera/image_raw" to="/airsim_node/drone_1/mono_camera/Scene"/>
-
-    </node>
-
-
-</launch>

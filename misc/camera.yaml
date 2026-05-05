@@ -1,0 +1,136 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# AirSim drone_1 / mono_camera — ORB-SLAM3 Calibration File
+# Generated from AirSim settings.json (SettingsVersion 1.2)
+#
+# Camera: mono_camera
+#   Resolution : 640 x 480
+#   FOV        : 90 degrees (horizontal)
+#   Mount      : X=0.0, Y=0.0, Z=0.2 (body frame), Pitch=-45 deg, Roll=0, Yaw=0
+#
+# Intrinsics derived analytically:
+#   fx = fy = (Width/2) / tan(FOV_rad/2) = 320 / tan(45°) = 320.0
+#   cx = Width/2  = 320.0
+#   cy = Height/2 = 240.0
+#
+# AirSim renders an ideal pinhole camera with no lens distortion,
+# so all distortion coefficients are 0.
+#
+# IMU: AirSim SimpleFlight IMU runs at 1000 Hz internally; 
+#      noise values below are typical for a simulated (near-ideal) IMU —
+#      replace with real values if you switch to a hardware IMU.
+#--------------------------------------------------------------------------------------------
+
+File.version: "1.0"
+
+Camera.type: "PinHole"
+
+# Camera intrinsic parameters (OpenCV convention)
+Camera1.fx: 320.0
+Camera1.fy: 320.0
+Camera1.cx: 320.0
+Camera1.cy: 240.0
+
+# Distortion coefficients — AirSim is an ideal pinhole simulator (no distortion)
+Camera1.k1: 0.0
+Camera1.k2: 0.0
+Camera1.p1: 0.0
+Camera1.p2: 0.0
+
+# Camera resolution
+Camera.width:  640
+Camera.height: 480
+
+# Camera frames per second — match your AirSim capture rate
+Camera.fps: 30
+
+# Color order of the images (0: BGR, 1: RGB)
+Camera.RGB: 1
+
+#--------------------------------------------------------------------------------------------
+# Extrinsics: Transformation from camera frame (C) to body/IMU frame (B)
+# i.e.  IMU.T_b_c1 = T_B_C
+#
+# AirSim body frame: X forward, Y right, Z down (NED convention)
+# AirSim camera mount: position (0, 0, 0.2) in body frame,
+#                      Pitch = -45 deg (nose-down), Roll = 0, Yaw = 0
+#
+# Rotation R_B_C for Pitch=-45° (rotate camera axes back into body axes):
+#   A -45° pitch of the camera means the camera's Z-axis (optical axis, forward)
+#   points 45° below the body X-axis.
+#   R_B_C = Ry(+45°):
+#     [ cos45   0  sin45 ]   [ 0.7071  0.0  0.7071 ]
+#     [   0     1    0   ] = [ 0.0     1.0  0.0    ]
+#     [-sin45   0  cos45 ]   [-0.7071  0.0  0.7071 ]
+#
+# Translation t_B_C: camera origin in body frame = (0.0, 0.0, 0.2)
+#
+# Full 4x4 homogeneous matrix T_B_C:
+#   [ R  | t ]
+#   [ 0  | 1 ]
+#--------------------------------------------------------------------------------------------
+IMU.T_b_c1: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: f
+   data: [ 0.7071,  0.0,  0.7071,  0.0,
+           0.0,     1.0,  0.0,     0.0,
+          -0.7071,  0.0,  0.7071,  0.2,
+           0.0,     0.0,  0.0,     1.0]
+
+#--------------------------------------------------------------------------------------------
+# IMU Parameters
+# AirSim's simulated IMU is near-ideal. These are low-noise placeholder values.
+# For a real hardware IMU, calibrate with kalibr or the manufacturer datasheet.
+#--------------------------------------------------------------------------------------------
+
+# Gyroscope noise density  [rad/s/sqrt(Hz)]
+IMU.NoiseGyro: 1.7e-4
+
+# Accelerometer noise density  [m/s^2/sqrt(Hz)]
+IMU.NoiseAcc: 2.0e-3
+
+# Gyroscope random walk  [rad/s^2/sqrt(Hz)]
+IMU.GyroWalk: 1.9e-5
+
+# Accelerometer random walk  [m/s^3/sqrt(Hz)]
+IMU.AccWalk: 3.0e-3
+
+# IMU sampling frequency [Hz]
+# AirSim internal IMU runs at 1000 Hz; set to whatever rate your ROS bridge publishes
+# ROS bridge publishes at 100hz
+IMU.Frequency: 100.0
+
+#--------------------------------------------------------------------------------------------
+# ORB Extractor Parameters
+#--------------------------------------------------------------------------------------------
+
+# Number of features per image
+ORBextractor.nFeatures: 1000
+
+# Scale factor between pyramid levels
+ORBextractor.scaleFactor: 1.2
+
+# Number of levels in the scale pyramid
+ORBextractor.nLevels: 8
+
+# FAST corner detection thresholds
+# Lower these if your simulated scene has low-contrast textures
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -3.5
+Viewer.ViewpointF: 500.0

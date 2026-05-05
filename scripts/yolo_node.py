@@ -63,6 +63,7 @@ class YoloDetector:
 
         # Assume nobody was detected, then process detection(s)
         person_detected = False
+        detected_labels = []
 
         if results.boxes is not None:
             for box in results.boxes:
@@ -87,6 +88,8 @@ class YoloDetector:
                                 color,
                                 2)
 
+                    detected_labels.append(label)
+
                     if label == "person":
                         person_detected = True
 
@@ -96,15 +99,16 @@ class YoloDetector:
         # Cooldown-based announcement
         now = time.time()
 
-        # Print whatever YOLO sees to terminal
-        if (now - self.last_announcement > self.cooldown):
-            print("YOLO Detected: " + label)
-            self.last_announcement = now
-            
-        # Publish when a person is detected
-        if person_detected and (now - self.last_announcement > self.cooldown):
-            rospy.loginfo("PERSON DETECTED")
-            self.detection_pub.publish("PERSON DETECTED")
+        if now - self.last_announcement > self.cooldown:
+            # Print whatever YOLO sees to terminal
+            if detected_labels:
+                print("YOLO Detected: " + ", ".join(detected_labels))
+
+            # Publish when a person is detected
+            if person_detected:
+                rospy.loginfo("PERSON DETECTED")
+                self.detection_pub.publish("PERSON DETECTED")
+
             self.last_announcement = now
 
         # Publish annotated image

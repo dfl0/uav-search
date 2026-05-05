@@ -3,6 +3,8 @@
     "SimMode": "Multirotor",
     "LocalHostIp": "0.0.0.0",
     "ApiServerPort": 41451,
+
+
     "DefaultSensors": {
         "Barometer": {
             "SensorType": 1,
@@ -17,7 +19,10 @@
             "Enabled": false
         }
     },
+
+
     "Vehicles": {
+
         "drone_1": {
             "VehicleType": "SimpleFlight",
             "DefaultVehicleState": "Armed",
@@ -32,7 +37,7 @@
                 "mono_camera": {
                     "X": 0.0,
                     "Y": 0.0,
-                    "Z": 0.0,
+                    "Z": 0.2,
                     "Pitch": -45,
                     "Roll": 0,
                     "Yaw": 0,
@@ -47,6 +52,8 @@
                 }
             }
         }
+
+
     },
 
 

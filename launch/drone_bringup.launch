@@ -1,0 +1,40 @@
+<launch>
+    <arg name="drone_name"/>
+    <arg name="image_topic" value="/airsim_node/$(arg drone_name)/mono_camera/Scene"/>
+    <arg name="imu_topic" value="/airsim_node/$(arg drone_name)/imu/imu"/>
+    
+    <arg name="root" default="$(find uav_search)"/>
+    <arg name="slam_args" value="$(arg root)/misc/vocab.txt $(arg root)/misc/camera.yaml"/>
+    
+    <arg name="yolo_output" default="false"/>
+
+    <!-- start slam -->
+    <node pkg="ORB_SLAM3" 
+          type="Mono" 
+          name="$(arg drone_name)_orbslam3"
+          args="$(arg slam_args)"
+    >
+        <remap from="/camera/image_raw" to="$(arg image_topic)"/>
+        <remap from="/imu" to="$(arg imu_topic)"/>
+    </node>
+
+    <!-- start vision -->
+    <node pkg="uav_search" 
+          type="yolo_node.py" 
+          name="$(arg drone_name)_yolo_node"
+          output="screen"
+    >
+        <remap from="/camera/image_raw" to="$(arg image_topic)"/>
+        <remap from="/yolo/image_annotated" to="$(arg drone_name)/img_annotated"/>
+        <remap from="/yolo/detections" to="$(arg drone_name)/cv_detections"/>
+    </node>
+
+    <!-- conditionally start image viewer -->
+    <node pkg="image_view"
+          type="image_view"
+          name="$(arg drone_name)_image_view"
+          if="$(arg yolo_output)">
+        <remap from="image" to="/$(arg drone_name)/img_annotated"/>
+    </node>
+
+</launch>

@@ -1,7 +1,0 @@
-<launch>
-    <!-- required arg for drone name -->
-    <arg name="drone_name"/>
-
-
-
-</launch>
