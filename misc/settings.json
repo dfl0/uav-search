@@ -4,66 +4,64 @@
     "LocalHostIp": "0.0.0.0",
     "ApiServerPort": 41451,
 
+    "ViewMode": "NoDisplay",
 
-    "DefaultSensors": {
-        "Barometer": {
-            "SensorType": 1,
-            "Enabled": false
-        },
-        "Gps": {
-            "SensorType": 3,
-            "Enabled": false
-        },
-        "Magnetometer": {
-            "SensorType": 4,
-            "Enabled": false
-        }
+    "CameraDefaults": {
+        "CaptureSettings": [
+            {
+                "ImageType": 0,
+                "Width": 60,
+                "Height": 80,
+                "FOV_Degrees": 120
+            },
+            {
+                "ImageType": 1,
+                "Width": 60,
+                "Height": 80,
+                "FOV_Degrees": 120
+            }
+        ]
     },
 
+    "DefaultSensors": {
+        "Barometer":    { "SensorType": 1, "Enabled": false },
+        "Imu":          { "SensorType": 2, "Enabled": true },
+        "Gps":          { "SensorType": 3, "Enabled": true },
+        "Magnetometer": { "SensorType": 4, "Enabled": false }
+    },
 
     "Vehicles": {
-
         "drone_1": {
             "VehicleType": "SimpleFlight",
             "DefaultVehicleState": "Armed",
             "AutoCreate": true,
-            "Sensors": {
-                "imu": {
-                    "SensorType": 2,
-                    "Enabled": true
-                }
-            },
+            "X": 0, "Y": 0, "Z": 0,
             "Cameras": {
                 "mono_camera": {
-                    "X": 0.0,
-                    "Y": 0.0,
-                    "Z": 0.2,
-                    "Pitch": -45,
-                    "Roll": 0,
-                    "Yaw": 0,
-                    "CaptureSettings": [
-                        {
-                            "ImageType": 0,
-                            "Width": 640,
-                            "Height": 480,
-                            "FOV_Degrees": 90
-                        }
-                    ]
+                    "X": 0.0, "Y": 0.0, "Z": 0.3,
+                    "Pitch": -45, "Roll": 0, "Yaw": 0
+                }
+            }
+        },
+
+        "drone_2": {
+            "VehicleType": "SimpleFlight",
+            "DefaultVehicleState": "Armed",
+            "AutoCreate": true,
+            "X": 2, "Y": 0, "Z": 0,
+            "Cameras": {
+                "mono_camera": {
+                    "X": 0.0, "Y": 0.0, "Z": 0.3,
+                    "Pitch": -45, "Roll": 0, "Yaw": 0
                 }
             }
         }
 
-
     },
 
-
-    
     "SubWindows": [
-        {
-            "WindowID": 0,
-            "CameraName": "mono_camera",
-            "ImageType": 0,
-            "VehicleName": "drone_1"
-        }
+        { "WindowID": 0, "CameraName": "mono_camera", "ImageType": 0, "VehicleName": "drone_1" },
+        { "WindowID": 1, "CameraName": "mono_camera", "ImageType": 0, "VehicleName": "drone_2" },
+        { "WindowID": 2, "CameraName": "mono_camera",    "ImageType": 1, "VehicleName": "drone_1" }
     ]
 }
