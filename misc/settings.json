@@ -4,21 +4,19 @@
     "LocalHostIp": "0.0.0.0",
     "ApiServerPort": 41451,
 
-    "ViewMode": "NoDisplay",
-
     "CameraDefaults": {
         "CaptureSettings": [
             {
                 "ImageType": 0,
-                "Width": 60,
-                "Height": 80,
-                "FOV_Degrees": 120
+                "Width": 640,
+                "Height": 480,
+                "FOV_Degrees": 90
             },
             {
                 "ImageType": 1,
                 "Width": 60,
                 "Height": 80,
-                "FOV_Degrees": 120
+                "FOV_Degrees": 90
             }
         ]
     },
