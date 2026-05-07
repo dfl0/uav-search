@@ -1,46 +1,73 @@
 {
     "SettingsVersion": 1.2,
     "SimMode": "Multirotor",
-    "LocalHostIp": "0.0.0.0",
-    "ApiServerPort": 41451,
+    "ClockType": "ScalableClock",
+    "ClockSpeed": 1.0,
     "DefaultSensors": {
         "Barometer": {
             "SensorType": 1,
             "Enabled": false
         },
+        "Imu": {
+            "SensorType": 2,
+            "Enabled": true,
+            "UpdateFrequency": 10
+        },
         "Gps": {
             "SensorType": 3,
-            "Enabled": false
+            "Enabled": true,
+            "UpdateFrequency": 10
         },
         "Magnetometer": {
             "SensorType": 4,
             "Enabled": false
+        },
+        "Distance": {
+            "SensorType": 5,
+            "Enabled" : true,
+            "UpdateFrequency": 10
+        },
+        "Lidar2": {
+            "SensorType": 6,
+            "Enabled" : false
         }
+    },
+    "CameraDefaults": {
+        "X": 0,
+        "Y": 0,
+        "Z": 0.1,
+        "Pitch": -45,
+        "Roll": 0,
+        "Yaw": 0
     },
     "Vehicles": {
         "drone_1": {
             "VehicleType": "SimpleFlight",
             "DefaultVehicleState": "Armed",
             "AutoCreate": true,
-            "Sensors": {
-                "imu": {
-                    "SensorType": 2,
-                    "Enabled": true
-                }
-            },
+            "X": 60,
+            "Y": 40,
+            "Z": 0,
+            "Pitch": 0,
+            "Roll": 0,
+            "Yaw": 180,
             "Cameras": {
                 "mono_camera": {
-                    "X": 0.0,
-                    "Y": 0.0,
-                    "Z": 0.0,
-                    "Pitch": -45,
-                    "Roll": 0,
-                    "Yaw": 0,
                     "CaptureSettings": [
                         {
                             "ImageType": 0,
-                            "Width": 640,
-                            "Height": 480,
+                            "Width": 80,
+                            "Height": 60,
+                            "FOV_Degrees": 90
+                        }
+                    ]
+                },
+                "depth_camera": {
+                    "CaptureSettings": [
+                        {
+                            "ImageType": 1,
+                            "Width": 80,
+                            "Height": 60,
                             "FOV_Degrees": 90
                         }
                     ]
@@ -48,14 +75,17 @@
             }
         }
     },
-
-
-    
     "SubWindows": [
         {
             "WindowID": 0,
             "CameraName": "mono_camera",
             "ImageType": 0,
+            "VehicleName": "drone_1"
+        },
+        {
+            "WindowID": 2,
+            "CameraName": "depth_camera",
+            "ImageType": 1,
             "VehicleName": "drone_1"
         }
     ]
