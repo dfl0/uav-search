@@ -55,3 +55,8 @@ add_executable(coordinator_node src/coordinator_node.cpp)
 target_link_libraries(coordinator_node
     ${catkin_LIBRARIES}
 )
+
+add_executable(drone_controller_node src/drone_controller_node.cpp)
+target_link_libraries(drone_controller_node
+    ${catkin_LIBRARIES}
+)

@@ -1,27 +1,56 @@
 <launch>
     <arg name="output" default="log"/>
-    <arg name="host" default="localhost"/>
-
-    <include file="$(find airsim_ros_pkgs)/launch/airsim_node.launch">
-        <arg name="host" value="$(arg host)"/>
-        <arg name="output" value="$(arg output)"/>
-    </include>
 
     <node pkg="tf" type="static_transform_publisher" name="map_to_world_ned"
           args="0 0 0 1.57079632 0 3.14159265 map world_ned 100"/>
-
-    <node pkg="uav_search"
-          type="coordinator_node"
-          name="cooordinator_node"
-          output="screen"/>
-
     <include file="$(find uav_search)/launch/octomap_server.launch"/>
 
     <include file="$(find uav_search)/launch/depth_to_pointcloud.launch">
         <arg name="drone_name" value="drone_1"/>
     </include>
 
+    <node pkg="uav_search"
+          type="drone_controller_node"
+          name="drone_1_controller_node"
+          output="screen">
+
+        <param name="drone_name" value="drone_1"/>
+    </node>
+
+    <node pkg="uav_search"
+          type="airsim_bridge_node"
+          name="drone_1_airsim_bridge_node"
+          output="screen">
+        <param name="drone_name" value="drone_1"/>
+    </node>
+
     <include file="$(find uav_search)/launch/depth_to_pointcloud.launch">
         <arg name="drone_name" value="drone_2"/>
     </include>
+
+    <node pkg="uav_search"
+          type="airsim_bridge_node"
+          name="drone_2_airsim_bridge_node"
+          output="screen">
+        <param name="drone_name" value="drone_2"/>
+    </node>
+
+    <node pkg="uav_search"
+          type="drone_controller_node"
+          name="drone_2_controller_node"
+          output="screen">
+
+        <param name="drone_name" value="drone_2"/>
+    </node>
+
+    <node pkg="uav_search"
+          type="coordinator_node"
+          name="cooordinator_node"
+          output="screen">
+
+        <rosparam param="drones">
+            - drone_1
+            - drone_2
+        </rosparam>
+    </node>
 </launch>
