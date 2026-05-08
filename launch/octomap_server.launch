@@ -3,7 +3,7 @@
         <param name="frame_id" value="map"/>
         <remap from="cloud_in" to="/points"/>
 
-        <param name="resolution" value="0.4"/>
+        <param name="resolution" value="1.0"/>
         <param name="sensor_model/max_range" value="20.0"/>
     </node>
 </launch>

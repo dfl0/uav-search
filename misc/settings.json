@@ -1,10 +1,21 @@
 {
     "SettingsVersion": 1.2,
     "SimMode": "Multirotor",
-    "LocalHostIp": "0.0.0.0",
-    "ApiServerPort": 41451,
+    "ClockType": "ScalableClock",
+    "ClockSpeed": 1.0,
+
+    "DefaultSensors": {
+        "Barometer":    { "SensorType": 1, "Enabled": false },
+        "Imu":          { "SensorType": 2, "Enabled": true, "UpdateFrequency": 10 },
+        "Gps":          { "SensorType": 3, "Enabled": true, "UpdateFrequency": 10 },
+        "Magnetometer": { "SensorType": 4, "Enabled": false },
+        "Distance": { "SensorType": 5, "Enabled": true, "UpdateFrequency": 10 },
+        "Lidar2": { "SensorType": 6, "Enabled": false }
+    },
 
     "CameraDefaults": {
+        "X": 0, "Y": 0, "Z": 0.3,
+        "Pitch": -45, "Roll": 0, "Yaw": 0,
         "CaptureSettings": [
             {
                 "ImageType": 0,
@@ -21,13 +32,6 @@
         ]
     },
 
-    "DefaultSensors": {
-        "Barometer":    { "SensorType": 1, "Enabled": false },
-        "Imu":          { "SensorType": 2, "Enabled": true },
-        "Gps":          { "SensorType": 3, "Enabled": true },
-        "Magnetometer": { "SensorType": 4, "Enabled": false }
-    },
-
     "Vehicles": {
         "drone_1": {
             "VehicleType": "SimpleFlight",
@@ -35,10 +39,7 @@
             "AutoCreate": true,
             "X": 0, "Y": 0, "Z": 0,
             "Cameras": {
-                "mono_camera": {
-                    "X": 0.0, "Y": 0.0, "Z": 0.3,
-                    "Pitch": -45, "Roll": 0, "Yaw": 0
-                }
+                "mono_camera": {}
             }
         },
 
@@ -48,10 +49,7 @@
             "AutoCreate": true,
             "X": 2, "Y": 0, "Z": 0,
             "Cameras": {
-                "mono_camera": {
-                    "X": 0.0, "Y": 0.0, "Z": 0.3,
-                    "Pitch": -45, "Roll": 0, "Yaw": 0
-                }
+                "mono_camera": {}
             }
         }
 

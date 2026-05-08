@@ -37,11 +37,11 @@
     </node>
 
     <!-- conditionally start image viewer -->
-    <node pkg="image_view"
+    <!-- <node pkg="image_view"
           type="image_view"
           name="$(arg drone_name)_image_view"
           if="$(arg yolo_output)">
         <remap from="image" to="/$(arg drone_name)/img_annotated"/>
-    </node>
+    </node> -->
 
 </launch>
