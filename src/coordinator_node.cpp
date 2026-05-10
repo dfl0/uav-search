@@ -1,28 +1,34 @@
-#include <ros/ros.h>
-#include <tf/transform_listener.h>
+#include <algorithm>
+#include <boost/bind.hpp>
+#include <cmath>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TransformStamped.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <nav_msgs/Odometry.h>
-#include <visualization_msgs/MarkerArray.h>
-#include <boost/bind.hpp>
+#include <nav_msgs/Path.h>
+#include <octomap/octomap.h>
 #include <queue>
-#include <vector>
+#include <random>
+#include <ros/ros.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/static_transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
 #include <unordered_map>
+#include <vector>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
+
+#include <octomap_msgs/Octomap.h>
+#include <octomap_msgs/conversions.h>
 
 class Coordinator {
 public:
     Coordinator() {
-        map_sub_ = nh_.subscribe(
-            "/projected_map",
-            1,
-            &Coordinator::mapCallback,
-            this
-        );
+        octomap_sub_ = nh_.subscribe("/octomap_binary", 1,
+                                     &Coordinator::octomapCallback, this);
+        marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/frontier_markers", 1);
 
-        marker_pub_ = nh_.advertise<visualization_msgs::MarkerArray>(
-            "/frontier_markers",
-            1
-        );
+        tf_listener_ = std::make_unique<tf2_ros::TransformListener>(tf_buffer_);
 
         ROS_INFO("Initializing drones");
 
@@ -34,26 +40,18 @@ public:
             return;
         }
 
-        for (const auto& name : drone_names) {
-
+        for (const auto &name : drone_names) {
             ROS_INFO("Registering drone %s", name.c_str());
 
             drones_[name] = DroneState();
             drones_[name].name = name;
 
-            odom_subs_[name] = nh_.subscribe<nav_msgs::Odometry>(
-                "/airsim_node/" + name + "/odom_local_ned",
-                1,
-                boost::bind(&Coordinator::odomCallback, this, _1, name)
-            );
+            odom_subs_[name] = nh_.subscribe<nav_msgs::Odometry>("/airsim_node/" + name + "/odom_local_ned", 1,
+                                                                 boost::bind(&Coordinator::odomCallback, this, _1, name));
 
             ROS_INFO("Subscribed to %s", ("/airsim_node/" + name + "/odom_local_ned").c_str());
 
-            goal_pubs_[name] = nh_.advertise<geometry_msgs::PoseStamped>(
-                "/" + name + "/goal",
-                1,
-                true
-            );
+            path_pubs_[name] = nh_.advertise<nav_msgs::Path>("/" + name + "/path", 1, true);
         }
     }
 
@@ -63,6 +61,7 @@ private:
 
         bool active = false;
         bool has_goal = false;
+
         int assigned_frontier = -1;
         ros::Time last_assigned_time;
 
@@ -72,539 +71,719 @@ private:
     };
 
     struct FrontierCluster {
-        std::vector<std::pair<int,int>> cells;
-
-        double centroid_x = 0.0;
-        double centroid_y = 0.0;
-
-        bool assigned = false;
+        std::vector<octomap::point3d> voxels;
 
         double world_x = 0.0;
         double world_y = 0.0;
+        double world_z = 0.0;
+
+        bool assigned = false;
     };
+
+    struct RRTNode {
+        octomap::point3d pos;
+        int parent;
+    };
+
+    struct BlacklistEntry {
+        octomap::point3d pos;
+        ros::Time expiry;
+    };
+    std::vector<BlacklistEntry> rrt_blacklist_;
+
+    std::mt19937 rng_{std::random_device{}()};
 
     ros::NodeHandle nh_;
     ros::NodeHandle pnh_{"~"};
 
-    tf::TransformListener tf_listener_;
+    tf2_ros::Buffer tf_buffer_;
+    std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 
     std::unordered_map<std::string, DroneState> drones_;
 
-    ros::Subscriber map_sub_;
+    std::unordered_map<std::string, std::vector<octomap::point3d>> active_paths_;
+    std::unordered_map<std::string,
+    std::vector<std::pair<octomap::point3d, octomap::point3d>>>
+    active_rrt_trees_;
+
+    ros::Subscriber octomap_sub_;
     ros::Publisher marker_pub_;
 
     std::unordered_map<std::string, ros::Subscriber> odom_subs_;
-    std::unordered_map<std::string, ros::Publisher> goal_pubs_;
+    std::unordered_map<std::string, ros::Publisher> path_pubs_;
     std::unordered_map<std::string, FrontierCluster> last_assigned_frontiers_;
 
-    void odomCallback(const nav_msgs::Odometry::ConstPtr& msg,
-                      const std::string& drone_name) {
-        auto& drone = drones_[drone_name];
+    std::unordered_map<std::string, ros::Subscriber> gt_subs_;
+    tf2_ros::StaticTransformBroadcaster static_tf_broadcaster_;
 
-        geometry_msgs::PoseStamped pose_in;
+    void odomCallback(const nav_msgs::Odometry::ConstPtr &msg,
+                      const std::string &drone_name) {
+        auto &drone = drones_[drone_name];
+
+        geometry_msgs::PoseStamped pose_in, pose_map;
         pose_in.header = msg->header;
-        pose_in.pose   = msg->pose.pose;
+        pose_in.pose = msg->pose.pose;
 
-        geometry_msgs::PoseStamped pose_map;
         try {
-            tf_listener_.transformPose("map", pose_in, pose_map);
-
+            tf_buffer_.transform(pose_in, pose_map, "map", ros::Duration(0.1));
             drone.x = pose_map.pose.position.x;
             drone.y = pose_map.pose.position.y;
             drone.z = pose_map.pose.position.z;
-
             drone.active = true;
-        }
-        catch (tf::TransformException& ex) {
-            ROS_WARN_THROTTLE(1.0, "%s", ex.what());
+        } catch (tf2::TransformException &ex) {
             return;
         }
 
         if (drone.has_goal) {
-            auto& f = last_assigned_frontiers_[drone.name];
+            auto &f = last_assigned_frontiers_[drone.name];
 
-            double dx = drone.x - f.world_x;
-            double dy = drone.y - f.world_y;
+            // Calculate distance in the unified map frame
+            double dist_sq = std::pow(drone.x - f.world_x, 2) +
+                std::pow(drone.y - f.world_y, 2) +
+                std::pow(drone.z - f.world_z, 2);
 
-            ROS_INFO_THROTTLE(
-                1.0,
-                "%s: drone=(%.2f %.2f) goal=(%.2f %.2f)",
-                drone.name.c_str(), drone.x, drone.y, f.world_x, f.world_y
-            );
-
-            if (dx*dx + dy*dy < 1.0) {
+            if (dist_sq < 6.25) { // 2.5 meter tolerance
                 drone.has_goal = false;
                 drone.assigned_frontier = -1;
-
-                ROS_INFO("%s reached goal", drone.name.c_str());
+                ROS_INFO("%s reached goal successfully", drone.name.c_str());
             }
         }
     }
 
-    void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) {
-        std::vector<FrontierCluster> clusters = detectFrontiers(*msg);
-        assignFrontiers(clusters);
-        publishMarkers(clusters, *msg);
+    void octomapCallback(const octomap_msgs::Octomap::ConstPtr &msg) {
+        octomap::AbstractOcTree *tree = octomap_msgs::binaryMsgToMap(*msg);
+        if (!tree)
+            return;
+
+        octomap::OcTree *octree = dynamic_cast<octomap::OcTree *>(tree);
+        if (!octree)
+            return;
+
+        revalidateActivePaths(*octree);
+
+        std::vector<FrontierCluster> frontiers = detect3DFrontiers(*octree);
+        assignFrontiers(*octree, frontiers);
+        publishPathMarkers();
+        delete octree;
     }
 
-    std::vector<FrontierCluster> detectFrontiers(const nav_msgs::OccupancyGrid& map) {
-        // float resolution = map.info.resolution;
-
-        int width = map.info.width;
-        int height = map.info.height;
-
-        // std::vector<std::pair<int,int>> frontier_cells;
-        std::vector<bool> frontier_mask(
-            width * height,
-            false
-        );
-
-        // find all frontier cells
-        int n_frontier_cells = 0;
-        for (int y = 1; y < height - 1; y++) {
-            for (int x = 1; x < width - 1; x++) {
-                if (isFrontierCell(x, y, map)) {
-                    frontier_mask[y*width + x] = true;
-                    n_frontier_cells++;
-                }
-            }
-        }
-
-        ROS_INFO_THROTTLE(1.0, "Detected %d frontier cells", n_frontier_cells);
-
-        // cluster frontier cells
-
-        std::vector<bool> visited(
-            width * height,
-            false
-        );
-
-        std::vector<FrontierCluster> clusters;
-
-        for (int y = 1; y < height - 1; y++) {
-            for (int x = 1; x < width - 1; x++) {
-                int idx = y*width + x;
-                if (!frontier_mask[idx])
-                    continue;
-                if (visited[idx])
-                    continue;
-
-                FrontierCluster cluster;
-
-                growCluster(
-                    x, y,
-                    frontier_mask,
-                    visited,
-                    map,
-                    cluster
-                );
-
-                if (cluster.cells.size() < 5 && clusters.size() > 0)
-                    continue;
-
-                computeCentroid(cluster);
-
-                cluster.world_x = map.info.origin.position.x + (cluster.centroid_x + 0.5)*map.info.resolution;
-                cluster.world_y = map.info.origin.position.y + (cluster.centroid_y + 0.5)*map.info.resolution;
-
-                clusters.push_back(cluster);
-            }
-        }
-
-        ROS_INFO_THROTTLE(1.0, "Detected %lu frontier clusters", clusters.size());
-
-        return clusters;
-    }
-
-    bool isFrontierCell(int x, int y, const nav_msgs::OccupancyGrid& map) {
-        int width = map.info.width;
-        int height = map.info.height;
-
-        const auto& data = map.data;
-
-        int idx = y*width + x;
-
-        if (data[idx] != 0)
-            return false;
-
-        for (int dy = -1; dy <= 1; dy++) {
-            for (int dx = -1; dx <= 1; dx++) {
-
-                if (dx == 0 && dy == 0)
-                    continue;
-
-                int nx = x + dx;
-                int ny = y + dy;
-
-                if (nx < 0 || ny < 0 ||
-                    nx >= width || ny >= height)
-                    continue;
-
-                int nidx = ny*width + nx;
-
-                if (data[nidx] == -1)
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    void growCluster(int start_x, int start_y,
-                     const std::vector<bool>& frontier_mask,
-                     std::vector<bool>& visited,
-                     const nav_msgs::OccupancyGrid& map,
-                     FrontierCluster& cluster) {
-        int width  = map.info.width;
-        int height = map.info.height;
-
-        std::queue<std::pair<int,int>> q;
-
-        q.push({start_x, start_y});
-
-        visited[start_y * width + start_x] = true;
-
-        while (!q.empty()) {
-            auto current = q.front();
-            q.pop();
-
-            int x = current.first;
-            int y = current.second;
-
-            cluster.cells.push_back(current);
-
-            // 8-connected BFS
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-
-                    if (dx == 0 && dy == 0)
-                        continue;
-
-                    int nx = x + dx;
-                    int ny = y + dy;
-
-                    if (nx < 0 || ny < 0 ||
-                        nx >= width || ny >= height)
-                        continue;
-
-                    int nidx = ny * width + nx;
-
-                    if (!frontier_mask[nidx])
-                        continue;
-
-                    if (visited[nidx])
-                        continue;
-
-                    visited[nidx] = true;
-
-                    q.push({nx, ny});
-                }
-            }
-        }
-    }
-
-    void computeCentroid(FrontierCluster& cluster) {
-        double sum_x = 0.0;
-        double sum_y = 0.0;
-
-        for (const auto& cell : cluster.cells) {
-            sum_x += cell.first;
-            sum_y += cell.second;
-        }
-
-        cluster.centroid_x = sum_x/cluster.cells.size();
-        cluster.centroid_y = sum_y/cluster.cells.size();
-    }
-
-    void publishMarkers(const std::vector<FrontierCluster>& clusters, const nav_msgs::OccupancyGrid& map) {
-        visualization_msgs::MarkerArray ma;
-        visualization_msgs::Marker points;
-
-        visualization_msgs::Marker clear;
-        clear.action = visualization_msgs::Marker::DELETEALL;
-        ma.markers.push_back(clear);
-
-        points.header.frame_id = map.header.frame_id;
-        points.header.stamp = ros::Time::now();
-        points.ns = "frontier_cells";
-        points.id = 0;
-        points.type = visualization_msgs::Marker::POINTS;
-        points.action = visualization_msgs::Marker::ADD;
-
-        points.scale.x = 0.2;
-        points.scale.y = 0.2;
-
-        points.color.r = 1.0;
-        points.color.a = 0.6;
-
-        int marker_id = 1;
-
-        for (const auto& cluster : clusters) {
-
-            // frontier cells
-            for (const auto& cell : cluster.cells) {
-                geometry_msgs::Point p;
-
-                p.x = map.info.origin.position.x + (cell.first + 0.5)*map.info.resolution;
-                p.y = map.info.origin.position.y + (cell.second + 0.5)*map.info.resolution;
-                p.z = 0.0;
-
-                points.points.push_back(p);
-            }
-
-            // centroid
-            visualization_msgs::Marker centroid;
-
-            centroid.header.frame_id = map.header.frame_id;
-            centroid.header.stamp = ros::Time::now();
-            centroid.ns = "frontier_centroids";
-            centroid.id = marker_id++;
-            centroid.type = visualization_msgs::Marker::CYLINDER;
-            centroid.action = visualization_msgs::Marker::ADD;
-
-            centroid.pose.position.x = map.info.origin.position.x + (cluster.centroid_x + 0.5)*map.info.resolution;
-            centroid.pose.position.y = map.info.origin.position.y + (cluster.centroid_y + 0.5)*map.info.resolution;
-            centroid.pose.position.z = 0.0;
-            centroid.pose.orientation.w = 1.0;
-
-            // scale based on cluster size
-            double size = 1.0 + 0.02*cluster.cells.size();
-
-            centroid.scale.x = size;
-            centroid.scale.y = size;
-            centroid.scale.z = 0.01;
-
-            centroid.color.r = 0.0;
-            centroid.color.g = 1.0;
-            centroid.color.b = 0.0;
-            centroid.color.a = 0.6;
-
-            ma.markers.push_back(centroid);
-        }
-
-        ma.markers.push_back(points);
-
-        for (const auto& [name, drone] : drones_) {
-
-            if (!drone.active)
+    void revalidateActivePaths(octomap::OcTree &tree) {
+        for (auto &[name, drone] : drones_) {
+            if (!drone.has_goal || !drone.active)
                 continue;
 
-            // drone sphere
+            auto it = active_paths_.find(name);
+            if (it == active_paths_.end() || it->second.size() < 2)
+                continue;
 
-            visualization_msgs::Marker drone_marker;
-
-            drone_marker.header.frame_id = "map";
-            drone_marker.header.stamp = ros::Time::now();
-
-            drone_marker.ns = "drones";
-            drone_marker.id = marker_id++;
-
-            drone_marker.type = visualization_msgs::Marker::SPHERE;
-            drone_marker.action = visualization_msgs::Marker::ADD;
-
-            drone_marker.pose.position.x = drone.x;
-            drone_marker.pose.position.y = drone.y;
-            drone_marker.pose.position.z = 0.3;
-
-            drone_marker.pose.orientation.w = 1.0;
-
-            drone_marker.scale.x = 0.5;
-            drone_marker.scale.y = 0.5;
-            drone_marker.scale.z = 0.5;
-
-            drone_marker.color.r = 0.0;
-            drone_marker.color.g = 0.0;
-            drone_marker.color.b = 1.0;
-            drone_marker.color.a = 1.0;
-
-            ma.markers.push_back(drone_marker);
-
-            // GOAL LINE
-
-            if (drone.has_goal) {
-                auto& f = last_assigned_frontiers_[name];
-
-                visualization_msgs::Marker line;
-
-                line.header.frame_id = "map";
-                line.header.stamp = ros::Time::now();
-
-                line.ns = "goal_lines";
-                line.id = marker_id++;
-
-                line.type = visualization_msgs::Marker::LINE_STRIP;
-                line.action = visualization_msgs::Marker::ADD;
-
-                line.scale.x = 0.08;
-
-                line.color.r = 0.0;
-                line.color.g = 0.5;
-                line.color.b = 1.0;
-                line.color.a = 1.0;
-
-                geometry_msgs::Point p1;
-                p1.x = drone.x;
-                p1.y = drone.y;
-                p1.z = 0.2;
-
-                geometry_msgs::Point p2;
-                p2.x = f.world_x;
-                p2.y = f.world_y;
-                p2.z = 0.2;
-
-                line.points.push_back(p1);
-                line.points.push_back(p2);
-
-                ma.markers.push_back(line);
-
-                // GOAL SPHERE
-
-                visualization_msgs::Marker goal_marker;
-
-                goal_marker.header.frame_id = "map";
-                goal_marker.header.stamp = ros::Time::now();
-
-                goal_marker.ns = "goals";
-                goal_marker.id = marker_id++;
-
-                goal_marker.type = visualization_msgs::Marker::SPHERE;
-                goal_marker.action = visualization_msgs::Marker::ADD;
-
-                goal_marker.pose.position.x = f.world_x;
-                goal_marker.pose.position.y = f.world_y;
-                goal_marker.pose.position.z = 0.3;
-
-                goal_marker.pose.orientation.w = 1.0;
-
-                goal_marker.scale.x = 0.35;
-                goal_marker.scale.y = 0.35;
-                goal_marker.scale.z = 0.35;
-
-                goal_marker.color.r = 1.0;
-                goal_marker.color.g = 1.0;
-                goal_marker.color.b = 0.0;
-                goal_marker.color.a = 1.0;
-
-                ma.markers.push_back(goal_marker);
+            const auto &path = it->second;
+            for (size_t i = 0; i + 1 < path.size(); i++) {
+                if (!isCollisionFree(tree, path[i], path[i + 1])) {
+                    ROS_WARN("%s: path segment [%zu→%zu] blocked by new obstacle — replanning",
+                             name.c_str(), i, i + 1);
+                    drone.has_goal = false;
+                    drone.assigned_frontier = -1;
+                    active_paths_[name].clear();
+                    break;
+                }
             }
         }
-
-        marker_pub_.publish(ma);
     }
 
-    void assignFrontiers(std::vector<FrontierCluster>& frontiers) {
-        const double TIMEOUT_SEC = 10.0;
-        const double FRONTIER_MATCH_DIST = 2.0;
+    void assignFrontiers(octomap::OcTree &tree,
+                         std::vector<FrontierCluster> &frontiers) {
+        const double TIMEOUT_SEC = 20.0;
+        const double RESERVATION_RADIUS = 5.0;
 
-        // Pass 1: validate in-progress goals against new frontier list
+        // PASS 1: Validate existing goals
 
-        for (auto& [name, drone] : drones_) {
+        for (auto &[name, drone] : drones_) {
             if (!drone.active || !drone.has_goal)
                 continue;
 
-            const auto& last = last_assigned_frontiers_[name];
+            const auto &last = last_assigned_frontiers_[name];
 
-            // Find the closest cluster in the new list to the drone's current target
-            int    match_idx  = -1;
-            double match_dist = std::numeric_limits<double>::max();
+            // 1. check if the goal is still unexplored directly via the OctoMap
+            octomap::point3d goal_pt(last.world_x, last.world_y, last.world_z);
+            octomap::OcTreeNode *node = tree.search(goal_pt);
 
-            for (int i = 0; i < (int)frontiers.size(); i++) {
-                double dx = frontiers[i].world_x - last.world_x;
-                double dy = frontiers[i].world_y - last.world_y;
-                double d  = dx*dx + dy*dy;
-
-                if (d < match_dist) {
-                    match_dist = d;
-                    match_idx = i;
+            if (node != nullptr) {
+                if (tree.isNodeOccupied(node)) {
+                    // Goal turned out to be an obstacle
+                    ROS_INFO("%s: Target voxel is an obstacle! Reassigning...",
+                             name.c_str());
+                    drone.has_goal = false;
+                    drone.assigned_frontier = -1;
+                    continue;
+                } else {
+                    // Goal is free space. Is it still bordering unknown space?
+                    if (!isFrontierVoxel(tree, goal_pt)) {
+                        ROS_INFO("%s: Target area fully mapped! Reassigning...",
+                                 name.c_str());
+                        drone.has_goal = false;
+                        drone.assigned_frontier = -1;
+                        continue;
+                    }
                 }
             }
 
-            // Frontier explored / merged into map - free the drone immediately
-            if (match_idx < 0 || match_dist > std::pow(FRONTIER_MATCH_DIST, 2)) {
-                ROS_INFO("%s: target frontier explored, reassigning", name.c_str());
+            // check for timeout
+            double elapsed = (ros::Time::now() - drone.last_assigned_time).toSec();
+            if (elapsed > TIMEOUT_SEC) {
+                ROS_WARN("%s: pursuit timed out (%.0fs), forcing reassignment",
+                         name.c_str(), elapsed);
                 drone.has_goal = false;
                 drone.assigned_frontier = -1;
                 continue;
             }
 
-            // Frontier still live - hold it so Pass 2 doesn't double-assign it
-            frontiers[match_idx].assigned = true;
+            for (int i = 0; i < (int)frontiers.size(); i++) {
+                double dist = std::sqrt(std::pow(frontiers[i].world_x - last.world_x, 2) +
+                                        std::pow(frontiers[i].world_y - last.world_y, 2) +
+                                        std::pow(frontiers[i].world_z - last.world_z, 2));
 
-            // Timeout: drone is probably stuck or the path is blocked
-            double elapsed = (ros::Time::now() - drone.last_assigned_time).toSec();
-            if (elapsed > TIMEOUT_SEC) {
-                ROS_WARN("%s: pursuit timed out (%.0fs), forcing reassignment",
-                        name.c_str(), elapsed);
-                frontiers[match_idx].assigned = false;
-                drone.has_goal                = false;
-                drone.assigned_frontier       = -1;
+                if (dist < RESERVATION_RADIUS) {
+                    frontiers[i].assigned = true;
+                }
             }
         }
 
-        // Pass 2: assign free frontiers to drones that need one
+        // PASS 2: Assign free frontiers to idle drones
 
-        for (auto& [name, drone] : drones_) {
+        for (auto &[name, drone] : drones_) {
             if (!drone.active || drone.has_goal)
                 continue;
 
-            if ((ros::Time::now() - drone.last_assigned_time).toSec() < 2.0)
-                continue;
-
             double best_score = -std::numeric_limits<double>::max();
-            int    best_frontier_idx   = -1;
+            int best_frontier_idx = -1;
 
             for (int i = 0; i < (int)frontiers.size(); i++) {
                 if (frontiers[i].assigned)
                     continue;
 
-                double dx   = frontiers[i].world_x - drone.x;
-                double dy   = frontiers[i].world_y - drone.y;
-                double dist = std::sqrt(dx*dx + dy*dy);
+                octomap::point3d fp(frontiers[i].world_x, frontiers[i].world_y,
+                                    frontiers[i].world_z);
+                if (isBlacklisted(fp))
+                    continue;
 
-                double score = 2.0*(double)frontiers[i].cells.size() - dist;
+                double dist = std::sqrt(std::pow(frontiers[i].world_x - drone.x, 2) +
+                                        std::pow(frontiers[i].world_y - drone.y, 2) +
+                                        std::pow(frontiers[i].world_z - drone.z, 2));
+
+                double size_score = std::min((double)frontiers[i].voxels.size(), 300.0);
+
+                double dist_penalty = dist * 3.0;
+
+                const double target_z = 10.0;
+                const double z_penalty_factor = 5.0;
+                double dz = frontiers[i].world_z - target_z;
+                double height_score = 20.0 * std::exp(-0.5 * (dz / z_penalty_factor) *
+                                                      (dz / z_penalty_factor));
+
+                double score = (size_score * 2.0) - dist_penalty + height_score;
 
                 if (score > best_score) {
                     best_score = score;
-                    best_frontier_idx   = i;
+                    best_frontier_idx = i;
                 }
             }
 
             if (best_frontier_idx < 0)
                 continue;
 
-            auto& f = frontiers[best_frontier_idx];
-            f.assigned = true;
-            drone.assigned_frontier = best_frontier_idx;
-            drone.has_goal = true;
-            drone.last_assigned_time = ros::Time::now();
-            last_assigned_frontiers_[name] = f;
+            auto &f = frontiers[best_frontier_idx];
 
-            publishGoal(drone, f);
+            octomap::point3d start(drone.x, drone.y, drone.z);
+            octomap::point3d goal(f.world_x, f.world_y, f.world_z);
+
+            auto path = planRRT(drone.name, tree, start, goal);
+
+            if (!path.empty()) {
+                f.assigned = true;
+                drone.assigned_frontier = best_frontier_idx;
+                drone.has_goal = true;
+                drone.last_assigned_time = ros::Time::now();
+                last_assigned_frontiers_[name] = f;
+                publishPath(drone.name, path);
+            } else {
+                octomap::point3d fp(f.world_x, f.world_y, f.world_z);
+                ROS_WARN("%s: RRT failed for (%.1f, %.1f, %.1f). Blacklisting for 30s.",
+                         name.c_str(), fp.x(), fp.y(), fp.z());
+                rrt_blacklist_.push_back({fp, ros::Time::now() + ros::Duration(30.0)});
+                f.assigned = true;
+            }
         }
     }
 
-    void publishGoal(DroneState& drone, const FrontierCluster& f) {
-        geometry_msgs::PoseStamped goal;
+    bool isBlacklisted(const octomap::point3d &pt) {
+        ros::Time now = ros::Time::now();
 
-        goal.header.frame_id = "map";
-        goal.header.stamp = ros::Time::now();
+        // prune expired entries
+        rrt_blacklist_.erase(
+            std::remove_if(rrt_blacklist_.begin(), rrt_blacklist_.end(),
+                           [&](const BlacklistEntry &e) { return e.expiry < now; }),
+            rrt_blacklist_.end()
+        );
 
-        goal.pose.position.x = f.world_x;
-        goal.pose.position.y = f.world_y;
-        goal.pose.position.z = 15.0;
+        const double BLACKLIST_RADIUS = 2.0;
+        for (auto &e : rrt_blacklist_) {
+            if ((e.pos - pt).norm() < BLACKLIST_RADIUS)
+                return true;
+        }
+        return false;
+    }
 
-        goal.pose.orientation.w = 1.0;
+    std::vector<FrontierCluster> detect3DFrontiers(octomap::OcTree &tree) {
+        std::vector<octomap::point3d> frontier_voxels;
 
-        goal_pubs_[drone.name].publish(goal);
+        for (auto it = tree.begin_leafs(), end = tree.end_leafs(); it != end; it++) {
+            if (tree.isNodeOccupied(*it))
+                continue;
 
-        ROS_INFO("%s assigned goal (%.2f, %.2f)",
-                 drone.name.c_str(),
-                 goal.pose.position.x,
-                 goal.pose.position.y);
+            octomap::point3d p = it.getCoordinate();
+
+            if (p.z() > 60.0 || p.z() < 0.0)
+                continue;
+
+            if (isFrontierVoxel(tree, p))
+                frontier_voxels.push_back(p);
+        }
+
+        return clusterFrontiers(tree, frontier_voxels);
+    }
+
+    bool isFrontierVoxel(octomap::OcTree &tree, const octomap::point3d &p) {
+        double res = tree.getResolution();
+
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dy == 0 && dz == 0)
+                        continue;
+
+                    octomap::point3d np(p.x() + dx * res, p.y() + dy * res,
+                                        p.z() + dz * res);
+
+                    auto node = tree.search(np);
+
+                    if (!node)
+                        return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    std::vector<FrontierCluster>
+    clusterFrontiers(octomap::OcTree &tree,
+                     const std::vector<octomap::point3d> &voxels) {
+        double res = tree.getResolution();
+
+        std::unordered_map<octomap::OcTreeKey, size_t, octomap::OcTreeKey::KeyHash>
+        key_to_idx;
+        for (size_t i = 0; i < voxels.size(); i++) {
+            key_to_idx[tree.coordToKey(voxels[i])] = i;
+        }
+
+        std::vector<bool> visited(voxels.size(), false);
+        std::vector<FrontierCluster> clusters;
+
+        // 26-connected neighbor offsets
+        const int offsets[][3] = {
+            {-1, -1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, 0, -1}, {-1, 0, 0},
+            {-1, 0, 1},   {-1, 1, -1}, {-1, 1, 0},  {-1, 1, 1},  {0, -1, -1},
+            {0, -1, 0},   {0, -1, 1},  {0, 0, -1},  {0, 0, 1},   {0, 1, -1},
+            {0, 1, 0},    {0, 1, 1},   {1, -1, -1}, {1, -1, 0},  {1, -1, 1},
+            {1, 0, -1},   {1, 0, 0},   {1, 0, 1},   {1, 1, -1},  {1, 1, 0},
+            {1, 1, 1},
+        };
+
+        for (size_t i = 0; i < voxels.size(); i++) {
+            if (visited[i])
+                continue;
+
+            FrontierCluster cluster;
+            std::queue<size_t> q;
+            q.push(i);
+            visited[i] = true;
+
+            while (!q.empty()) {
+                size_t idx = q.front();
+                q.pop();
+                cluster.voxels.push_back(voxels[idx]);
+
+                octomap::OcTreeKey base = tree.coordToKey(voxels[idx]);
+                for (auto &off : offsets) {
+                    octomap::OcTreeKey nk;
+                    nk[0] = base[0] + off[0];
+                    nk[1] = base[1] + off[1];
+                    nk[2] = base[2] + off[2];
+
+                    auto it = key_to_idx.find(nk);
+                    if (it != key_to_idx.end() && !visited[it->second]) {
+                        visited[it->second] = true;
+                        q.push(it->second);
+                    }
+                }
+            }
+
+            compute3DCentroid(cluster);
+            if (cluster.voxels.size() >= 5)
+                clusters.push_back(cluster);
+        }
+        return clusters;
+    }
+
+    void compute3DCentroid(FrontierCluster &cluster) {
+        double sx = 0, sy = 0, sz = 0;
+        for (auto &p : cluster.voxels) {
+            sx += p.x();
+            sy += p.y();
+            sz += p.z();
+        }
+        int n = cluster.voxels.size();
+        double avg_x = sx / n, avg_y = sy / n, avg_z = sz / n;
+
+        double worst_dist_sq = -1.0;
+        octomap::point3d best_voxel = cluster.voxels[0];
+
+        for (auto &p : cluster.voxels) {
+            double dist_sq = std::pow(p.x() - avg_x, 2) + std::pow(p.y() - avg_y, 2) +
+                std::pow(p.z() - avg_z, 2);
+            if (dist_sq > worst_dist_sq) {
+                worst_dist_sq = dist_sq;
+                best_voxel = p;
+            }
+        }
+
+        cluster.world_x = best_voxel.x();
+        cluster.world_y = best_voxel.y();
+        cluster.world_z = std::max(best_voxel.z(), 5.0f);
+    }
+
+    bool isCollisionFree(octomap::OcTree &tree, const octomap::point3d &a,
+                         const octomap::point3d &b, double drone_radius = 1.0) {
+        octomap::point3d dir = b - a;
+        double dist = dir.norm();
+        dir.normalize();
+
+        const double step = tree.getResolution() * 0.5;
+        const double res = tree.getResolution();
+
+        for (double d = 0.0; d <= dist; d += step) {
+            octomap::point3d cp = a + dir * d;
+
+            octomap::point3d bbx_min(cp.x() - drone_radius, cp.y() - drone_radius,
+                                     cp.z() - drone_radius);
+            octomap::point3d bbx_max(cp.x() + drone_radius, cp.y() + drone_radius,
+                                     cp.z() + drone_radius);
+
+            for (auto it = tree.begin_leafs_bbx(bbx_min, bbx_max),
+            end = tree.end_leafs_bbx();
+            it != end; ++it) {
+                if (tree.isNodeOccupied(*it))
+                    return false;
+            }
+
+            // treat unknown voxels that are face-adjacent to a known occupied voxel as occupied
+            const int face_offsets[6][3] = {{1, 0, 0},  {-1, 0, 0}, {0, 1, 0},
+                {0, -1, 0}, {0, 0, 1},  {0, 0, -1}};
+
+            octomap::OcTreeNode *cp_node = tree.search(cp);
+            if (cp_node == nullptr) {
+                for (auto &off : face_offsets) {
+                    octomap::point3d neighbor(cp.x() + off[0] * res,
+                                              cp.y() + off[1] * res,
+                                              cp.z() + off[2] * res);
+                    octomap::OcTreeNode *nb = tree.search(neighbor);
+                    if (nb && tree.isNodeOccupied(nb))
+                        return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    std::vector<octomap::point3d> planRRT(const std::string &drone_name,
+                                          octomap::OcTree &tree,
+                                          octomap::point3d start,
+                                          octomap::point3d goal) {
+        // check if the goal itself is occupied. If so, find the nearest free neighbor
+        octomap::OcTreeKey goal_key = tree.coordToKey(goal);
+        auto goal_node = tree.search(goal_key);
+        if (goal_node && tree.isNodeOccupied(goal_node)) {
+            // move goal slightly toward the start to pull it out of the wall
+            octomap::point3d push_dir = start - goal;
+            push_dir.normalize();
+            goal = goal + (push_dir * tree.getResolution() * 2.0);
+        }
+
+        const double MIN_FLIGHT_Z = 5.0;
+
+        goal = octomap::point3d(goal.x(), goal.y(),
+                                std::max((double)goal.z(), MIN_FLIGHT_Z));
+
+        std::vector<RRTNode> nodes;
+        nodes.push_back({start, -1});
+
+        std::vector<std::pair<octomap::point3d, octomap::point3d>> tree_edges;
+
+        double global_min_x, global_min_y, global_min_z;
+        double global_max_x, global_max_y, global_max_z;
+        tree.getMetricMin(global_min_x, global_min_y, global_min_z);
+        tree.getMetricMax(global_max_x, global_max_y, global_max_z);
+
+        double search_margin = 10.0;
+        const double discovery_height_buffer = 20.0;
+
+        double local_min_x = std::min(start.x(), goal.x()) - search_margin;
+        double local_max_x = std::max(start.x(), goal.x()) + search_margin;
+
+        double local_min_y = std::min(start.y(), goal.y()) - search_margin;
+        double local_max_y = std::max(start.y(), goal.y()) + search_margin;
+
+        double local_min_z =
+            std::max(global_min_z, std::min(start.z(), goal.z()) - search_margin);
+        double local_max_z =
+            std::max(start.z(), goal.z()) + discovery_height_buffer;
+
+        for (int iter = 0; iter < 5000; iter++) {
+            octomap::point3d sample;
+
+            std::uniform_real_distribution<double> bias(0.0, 1.0);
+            if (bias(rng_) < 0.10) {
+                sample = goal;
+            } else {
+                std::uniform_real_distribution<double> rx(local_min_x, local_max_x);
+                std::uniform_real_distribution<double> ry(local_min_y, local_max_y);
+                std::uniform_real_distribution<double> rz(std::max((double)local_min_z, MIN_FLIGHT_Z), local_max_z);
+                sample = octomap::point3d(rx(rng_), ry(rng_), rz(rng_));
+            }
+
+            int nearest = 0;
+            double best_dist = 1e9;
+
+            for (int i = 0; i < nodes.size(); i++) {
+                double d = (nodes[i].pos - sample).norm();
+
+                if (d < best_dist) {
+                    best_dist = d;
+                    nearest = i;
+                }
+            }
+
+            const double STEP = 2.0;
+            octomap::point3d dir = sample - nodes[nearest].pos;
+            if (dir.norm() > STEP) {
+                dir.normalize();
+                sample = nodes[nearest].pos + dir * STEP;
+            }
+
+            if (!isCollisionFree(tree, nodes[nearest].pos, sample))
+                continue;
+
+            nodes.push_back({sample, nearest});
+            tree_edges.push_back({nodes[nearest].pos, sample});
+
+            const double GOAL_THRESH = 1.0;
+            if ((sample - goal).norm() < GOAL_THRESH) {
+                std::vector<octomap::point3d> path;
+
+                int idx = nodes.size() - 1;
+                while (idx != -1) {
+                    path.push_back(nodes[idx].pos);
+                    idx = nodes[idx].parent;
+                }
+
+                std::reverse(path.begin(), path.end());
+                if (isCollisionFree(tree, path.back(), goal)) {
+                    path.push_back(goal);
+                }
+
+                active_rrt_trees_[drone_name] = tree_edges;
+
+                return path;
+            }
+        }
+        return {};
+    }
+
+    void publishPath(const std::string &drone,
+                     const std::vector<octomap::point3d> &points) {
+        nav_msgs::Path path;
+
+        path.header.frame_id = "map";
+        path.header.stamp = ros::Time::now();
+
+        for (auto &p : points) {
+            geometry_msgs::PoseStamped pose;
+
+            pose.header = path.header;
+
+            pose.pose.position.x = p.x();
+            pose.pose.position.y = p.y();
+            pose.pose.position.z = p.z();
+
+            pose.pose.orientation.w = 1.0;
+
+            path.poses.push_back(pose);
+        }
+
+        path_pubs_[drone].publish(path);
+
+        active_paths_[drone] = points;
+    }
+
+    void publishPathMarkers() {
+        visualization_msgs::MarkerArray ma;
+
+        visualization_msgs::Marker clear;
+
+        clear.action = visualization_msgs::Marker::DELETEALL;
+
+        ma.markers.push_back(clear);
+
+        int marker_id = 0;
+
+        // draw RRT trees
+
+        for (const auto &[drone, edges] : active_rrt_trees_) {
+            visualization_msgs::Marker tree_marker;
+
+            tree_marker.header.frame_id = "map";
+            tree_marker.header.stamp = ros::Time::now();
+
+            tree_marker.ns = "rrt_tree";
+
+            tree_marker.id = marker_id++;
+
+            tree_marker.type = visualization_msgs::Marker::LINE_LIST;
+
+            tree_marker.action = visualization_msgs::Marker::ADD;
+
+            tree_marker.scale.x = 0.03;
+
+            // tree colors
+
+            if (drone == "drone_1") {
+                tree_marker.color.r = 1.0;
+                tree_marker.color.g = 0.3;
+                tree_marker.color.b = 0.3;
+            } else {
+                tree_marker.color.r = 0.3;
+                tree_marker.color.g = 1.0;
+                tree_marker.color.b = 1.0;
+            }
+
+            tree_marker.color.a = 0.35;
+
+            for (const auto &edge : edges) {
+                geometry_msgs::Point p1;
+                geometry_msgs::Point p2;
+
+                p1.x = edge.first.x();
+                p1.y = edge.first.y();
+                p1.z = edge.first.z();
+
+                p2.x = edge.second.x();
+                p2.y = edge.second.y();
+                p2.z = edge.second.z();
+
+                tree_marker.points.push_back(p1);
+                tree_marker.points.push_back(p2);
+            }
+
+            ma.markers.push_back(tree_marker);
+        }
+
+        // draw final paths
+
+        for (const auto &[drone, path] : active_paths_) {
+            if (path.empty())
+                continue;
+
+            visualization_msgs::Marker line;
+
+            line.header.frame_id = "map";
+            line.header.stamp = ros::Time::now();
+
+            line.ns = "rrt_paths";
+
+            line.id = marker_id++;
+
+            line.type = visualization_msgs::Marker::LINE_STRIP;
+
+            line.action = visualization_msgs::Marker::ADD;
+
+            line.scale.x = 0.15;
+
+            // path colors
+
+            if (drone == "drone_1") {
+                line.color.r = 1.0;
+                line.color.g = 0.0;
+                line.color.b = 0.0;
+            } else {
+                line.color.r = 0.0;
+                line.color.g = 1.0;
+                line.color.b = 1.0;
+            }
+
+            line.color.a = 1.0;
+
+            for (const auto &p : path) {
+                geometry_msgs::Point gp;
+
+                gp.x = p.x();
+                gp.y = p.y();
+                gp.z = p.z();
+
+                line.points.push_back(gp);
+            }
+
+            ma.markers.push_back(line);
+
+            // waypoint spheres
+
+            for (const auto &p : path) {
+                visualization_msgs::Marker wp;
+
+                wp.header.frame_id = "map";
+                wp.header.stamp = ros::Time::now();
+
+                wp.ns = "rrt_waypoints";
+
+                wp.id = marker_id++;
+
+                wp.type = visualization_msgs::Marker::SPHERE;
+
+                wp.action = visualization_msgs::Marker::ADD;
+
+                wp.pose.position.x = p.x();
+                wp.pose.position.y = p.y();
+                wp.pose.position.z = p.z();
+
+                wp.pose.orientation.w = 1.0;
+
+                wp.scale.x = 0.35;
+                wp.scale.y = 0.35;
+                wp.scale.z = 0.35;
+
+                wp.color.r = 1.0;
+                wp.color.g = 1.0;
+                wp.color.b = 0.0;
+                wp.color.a = 1.0;
+
+                ma.markers.push_back(wp);
+            }
+        }
+
+        marker_pub_.publish(ma);
     }
 };
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
     ros::init(argc, argv, "coordinator_node");
     Coordinator node;
     ros::spin();

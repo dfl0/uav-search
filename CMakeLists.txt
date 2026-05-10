@@ -11,10 +11,12 @@ find_package(octomap REQUIRED)
 
 catkin_package(CATKIN_DEPENDS
     roscpp
-    tf
     geometry_msgs
     nav_msgs
     visualization_msgs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
     depth_image_proc
     airsim_ros_pkgs
     DEPENDS octomap
@@ -54,6 +56,7 @@ target_link_libraries(teleop
 add_executable(coordinator_node src/coordinator_node.cpp)
 target_link_libraries(coordinator_node
     ${catkin_LIBRARIES}
+    octomap
 )
 
 add_executable(drone_controller_node src/drone_controller_node.cpp)
