@@ -4,9 +4,10 @@
     <arg name="imu_topic" value="/airsim_node/$(arg drone_name)/imu/Imu"/>
     <arg name="root" default="$(find uav_search)"/>
     <arg name="yolo_output" default="false"/>
+    <arg name="slam_vis" default="false"/>
 
     <!-- start slam -->
-    <node pkg="ORB_SLAM3" 
+    <!-- <node pkg="ORB_SLAM3" 
           type="Mono" 
           name="$(arg drone_name)_orbslam3"
           args="$(arg root)/misc/vocab.txt $(arg root)/misc/camera.yaml"
@@ -14,16 +15,16 @@
     >
         <remap from="/camera/image_raw" to="$(arg image_topic)"/>
         <remap from="/imu" to="$(arg imu_topic)"/>
-    </node>
-    <!-- <node pkg="ORB_SLAM3" 
+    </node> -->
+    <node pkg="ORB_SLAM3" 
           type="Mono_Inertial" 
           name="$(arg drone_name)_orbslam3"
-          args="$(arg root)/misc/vocab.txt $(arg root)/misc/camera.yaml false"
+          args="$(arg root)/misc/vocab.txt $(arg root)/misc/camera.yaml $(arg slam_vis)"
           output="screen"
     >
         <remap from="/camera/image_raw" to="$(arg image_topic)"/>
         <remap from="/imu" to="$(arg imu_topic)"/>
-    </node> -->
+    </node>
 
     <!-- start vision -->
     <node pkg="uav_search" 
@@ -37,11 +38,11 @@
     </node>
 
     <!-- conditionally start image viewer -->
-    <!-- <node pkg="image_view"
+    <node pkg="image_view"
           type="image_view"
           name="$(arg drone_name)_image_view"
           if="$(arg yolo_output)">
         <remap from="image" to="/$(arg drone_name)/img_annotated"/>
-    </node> -->
+    </node>
 
 </launch>

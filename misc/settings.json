@@ -6,7 +6,7 @@
 
     "DefaultSensors": {
         "Barometer":    { "SensorType": 1, "Enabled": false },
-        "Imu":          { "SensorType": 2, "Enabled": true, "UpdateFrequency": 10 },
+        "Imu":          { "SensorType": 2, "Enabled": true, "UpdateFrequency": 100 },
         "Gps":          { "SensorType": 3, "Enabled": true, "UpdateFrequency": 10 },
         "Magnetometer": { "SensorType": 4, "Enabled": false },
         "Distance": { "SensorType": 5, "Enabled": true, "UpdateFrequency": 10 },

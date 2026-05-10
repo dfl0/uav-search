@@ -4,6 +4,7 @@
         pkg="uav_search"
         type="run_covins_backend.sh"
         name="covins_backend"
+        output="screen"
     >
     </node>
 
