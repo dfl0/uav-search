@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Installation
 
 ## SLAM
@@ -14,3 +15,6 @@
 - Install ultralytics (must be installed globally)
 
 ## Navigation + 3D Mapping
+=======
+# Final Project CS424
+>>>>>>> 6bef4039fb058fe99c8ab33e684a701b6a812539
