@@ -9,7 +9,7 @@
         "Imu":          { "SensorType": 2, "Enabled": true, "UpdateFrequency": 100 },
         "Gps":          { "SensorType": 3, "Enabled": true, "UpdateFrequency": 10 },
         "Magnetometer": { "SensorType": 4, "Enabled": false },
-        "Distance": { "SensorType": 5, "Enabled": true, "UpdateFrequency": 10 },
+        "Distance": { "SensorType": 5, "Enabled": false, "UpdateFrequency": 10 },
         "Lidar2": { "SensorType": 6, "Enabled": false }
     },
 
@@ -19,8 +19,8 @@
         "CaptureSettings": [
             {
                 "ImageType": 0,
-                "Width": 640,
-                "Height": 480,
+                "Width": 400,
+                "Height": 300,
                 "FOV_Degrees": 90
             },
             {
@@ -58,6 +58,6 @@
     "SubWindows": [
         { "WindowID": 0, "CameraName": "mono_camera", "ImageType": 0, "VehicleName": "drone_1" },
         { "WindowID": 1, "CameraName": "mono_camera", "ImageType": 0, "VehicleName": "drone_2" },
-        { "WindowID": 2, "CameraName": "mono_camera",    "ImageType": 1, "VehicleName": "drone_1" }
+        { "WindowID": 2, "CameraName": "mono_camera", "ImageType": 1, "VehicleName": "drone_1" }
     ]
 }

@@ -3,8 +3,11 @@
 
     <node pkg="tf" type="static_transform_publisher" name="map_to_world_ned"
           args="0 0 0 1.57079632 0 3.14159265 map world_ned 100"/>
+
     <include file="$(find uav_search)/launch/octomap_server.launch"/>
 
+
+    <!-- drone 1 -->
     <include file="$(find uav_search)/launch/depth_to_pointcloud.launch">
         <arg name="drone_name" value="drone_1"/>
     </include>
@@ -24,6 +27,7 @@
         <param name="drone_name" value="drone_1"/>
     </node>
 
+    <!-- drone 2-->
     <include file="$(find uav_search)/launch/depth_to_pointcloud.launch">
         <arg name="drone_name" value="drone_2"/>
     </include>
@@ -43,6 +47,7 @@
         <param name="drone_name" value="drone_2"/>
     </node>
 
+    <!-- coordinator node -->
     <node pkg="uav_search"
           type="coordinator_node"
           name="cooordinator_node"
